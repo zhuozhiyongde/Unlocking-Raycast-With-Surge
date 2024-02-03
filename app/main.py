@@ -517,7 +517,7 @@ async def proxy_sync_get(request: Request, after: str = Query(None)):
             data["updated"] = [
                 item
                 for item in data["updated"]
-                if datetime.fromisoformat(item["updated_at"]) > after_time
+                if datetime.fromisoformat(item["updated_at"].replace('Z', '+00:00')) > after_time
             ]
 
         return Response(json.dumps(data))
