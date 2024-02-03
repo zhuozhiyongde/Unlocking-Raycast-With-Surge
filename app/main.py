@@ -197,13 +197,14 @@ async def chat_completions_openai(raycast_data: dict):
                 stream=True,
             )
             for response in stream:
-                chunk = response.choices[0]
-                if chunk.finish_reason is not None:
-                    logger.debug(f"OpenAI response finish: {chunk.finish_reason}")
-                    yield f'data: {json.dumps({"text": "", "finish_reason": chunk.finish_reason})}\n\n'
-                if chunk.delta and chunk.delta.content:
-                    logger.debug(f"OpenAI response chunk: {chunk.delta.content}")
-                    yield f'data: {json.dumps({"text": chunk.delta.content})}\n\n'
+                if response.choices:
+                    chunk = response.choices[0]
+                    if chunk.finish_reason is not None:
+                        logger.debug(f"OpenAI response finish: {chunk.finish_reason}")
+                        yield f'data: {json.dumps({"text": "", "finish_reason": chunk.finish_reason})}\n\n'
+                    if chunk.delta and chunk.delta.content:
+                        logger.debug(f"OpenAI response chunk: {chunk.delta.content}")
+                        yield f'data: {json.dumps({"text": chunk.delta.content})}\n\n'
         except openai.APIConnectionError as e:
             # print(e.__cause__)
             error_json = {"error": {"message": e.__cause__}}
@@ -512,7 +513,7 @@ async def proxy_sync_get(request: Request, after: str = Query(None)):
         # https://backend.raycast.com/api/v1/me/sync?after=2024-02-02T02:27:01.141195Z
 
         if after:
-            after_time = datetime.fromisoformat(after)
+            after_time = datetime.fromisoformat(after.replace('Z', '+00:00'))
             data["updated"] = [
                 item
                 for item in data["updated"]
