@@ -358,8 +358,73 @@ async def proxy_models(request: Request):
     )
 
 
-@app.api_route("/api/v1/translations", methods=["POST"])
-async def proxy_translations(request: Request):
+if os.environ.get("DEEPLX_BASE_URL") or os.environ.get("DEEPLX_API_TOKEN"):
+
+    @app.api_route("/api/v1/translations", methods=["POST"])
+    async def proxy_translations_deepl(request: Request):
+        raycast_data = await request.json()
+
+        text = raycast_data["q"]
+        target_lang = raycast_data["target"]
+
+        if "source" in raycast_data:
+            source_lang = raycast_data["source"]
+
+        deeplx_base_url = os.environ.get("DEEPLX_BASE_URL")
+        deeplx_api_token = os.environ.get("DEEPLX_API_TOKEN")
+
+        if not deeplx_base_url:
+            return Response(
+                status_code=500,
+                content=json.dumps(
+                    {
+                        "error": {
+                            "message": "No DEEPLX_BASE_URL provided",
+                        }
+                    }
+                ),
+            )
+        if not deeplx_api_token:
+            deeplx_api_token = ""
+        headers = {"Authorization": f"Bearer {deeplx_api_token}"}
+        body = {
+            "text": text,
+            "target_lang": target_lang,
+        }
+        if "source" in raycast_data:
+            body["source_lang"] = source_lang
+
+        try:
+            req = ProxyRequest(
+                deeplx_base_url, "POST", headers, json.dumps(body), query_params={}
+            )
+            resp = await pass_through_request(http_client, req)
+            resp = json.loads(resp.content.decode("utf-8"))
+            translated_text = resp["alternatives"][0]
+            res = {"data": {"translations": [{"translatedText": translated_text}]}}
+
+            if "source" not in raycast_data:
+                res["data"]["translations"][0]["detectedSourceLanguage"] = resp[
+                    "source_lang"
+                ].lower()
+
+            return Response(status_code=200, content=json.dumps(res))
+        except Exception as e:
+            logger.error(f"DEEPLX error: {e}")
+            return Response(
+                status_code=500,
+                content=json.dumps(
+                    {
+                        "error": {
+                            "message": "Unknown error",
+                        }
+                    }
+                ),
+            )
+
+
+# @app.api_route("/api/v1/translations", methods=["POST"])
+async def proxy_translations_openai(request: Request):
     tranlation_dict = {
         "en": "English",
         "zh": "中文",
@@ -513,11 +578,12 @@ async def proxy_sync_get(request: Request, after: str = Query(None)):
         # https://backend.raycast.com/api/v1/me/sync?after=2024-02-02T02:27:01.141195Z
 
         if after:
-            after_time = datetime.fromisoformat(after.replace('Z', '+00:00'))
+            after_time = datetime.fromisoformat(after.replace("Z", "+00:00"))
             data["updated"] = [
                 item
                 for item in data["updated"]
-                if datetime.fromisoformat(item["updated_at"].replace('Z', '+00:00')) > after_time
+                if datetime.fromisoformat(item["updated_at"].replace("Z", "+00:00"))
+                > after_time
             ]
 
         return Response(json.dumps(data))
