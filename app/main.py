@@ -316,6 +316,9 @@ async def proxy_me(request: Request):
         data["can_upgrade_to_pro"] = False
         data["can_upgrade_to_better_ai"] = False
         data["can_use_referral_codes"] = True
+        data["can_manage_billing"] = False
+        data["can_cancel_subscription"] = False
+        data["can_view_billing"] = False
         data["admin"] = True
         # 为了移除自己界面的订阅字样
         data["subscription"] = None
