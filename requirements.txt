@@ -2,3 +2,4 @@ httpx
 openai
 fastapi
 uvicorn
+requests

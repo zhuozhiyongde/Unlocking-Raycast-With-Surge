@@ -4,6 +4,7 @@ import os
 import re
 from itertools import chain
 from datetime import datetime
+import requests
 
 
 import httpx
@@ -12,6 +13,9 @@ from fastapi import FastAPI, Request, Response, Query
 from fastapi.responses import StreamingResponse
 
 from app.utils import ProxyRequest, pass_through_request
+
+# 函数调用引用
+from app.functions.serp import tool_serp
 
 logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
 
@@ -36,6 +40,7 @@ def add_user(request: Request, user_email: str):
     if bearer_token not in USER_SESSION:
         logger.info(f"Adding user {user_email} to session")
         USER_SESSION[bearer_token] = user_email
+        # print(bearer_token)
 
 
 def check_auth(request: Request):
@@ -100,8 +105,8 @@ SERVICE_PROVIDERS = {
             ],
         },
         {
-            "id": "openai-gpt-4-1106-preview",
-            "model": "gpt-4-1106-preview",
+            "id": "openai-gpt-4-turbo-preview",
+            "model": "gpt-4-turbo-preview",
             "name": "GPT-4 Turbo",
             "provider": "openai",
             "provider_name": "OpenAI",
@@ -114,6 +119,31 @@ SERVICE_PROVIDERS = {
             ],
         },
     ],
+}
+
+OPENAI_TOOLS = {
+    "serp": {
+        "description": "Search Engine Results Page",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "The search query to be used",
+                }
+            },
+        },
+        # 后面的字段为附属字段，在调用 OpenAI 时会移除
+        "handler": tool_serp,
+        "notification": 'data: {"notification":"Searching in Google...","notification_type":"tool_used","text":""}\n\n',
+        "extra_messages": [
+            {
+                "role": "system",
+                "content": "可以根据上述资料进行总结，但请注意你的回答中如果用到相关信息，请以严格的‘[Source](URL)’的形式标注引用，注意第一个括号里一定是硬编码的英文“Source”字样，这和后续渲染相关。你不必使用markdown的标注语法。",
+            }
+        ],
+        "required_environ": ["APYHUB_API_KEY"],
+    },
 }
 
 openai_api_key = os.environ.get("OPENAI_API_KEY")
@@ -147,6 +177,26 @@ def get_model(raycast_data: dict):
     except Exception:
         pass
     return FORCE_MODEL or is_command_model or raycast_data["model"]
+
+
+def get_tools(tools: list):
+    # 对 tools 的每个对象，检查 required_environ 是否存在或者不存在此字段，如果满足该条件，则移除其 required_environ、handler、extra_messages 字段
+    # 返回处理后的 tools
+    format_tools = []
+    for tool in tools:
+        if "required_environ" in tools[tool]:
+            if any([not os.environ.get(env) for env in tools[tool]["required_environ"]]):
+                continue
+        format_tools.append({
+            "type":"function",
+            "function": {
+                "name": tool,
+                "description": tools[tool]["description"],
+                "parameters": tools[tool]["parameters"],
+            }
+        })
+
+    return format_tools
 
 
 async def chat_completions_openai(raycast_data: dict):
@@ -186,46 +236,124 @@ async def chat_completions_openai(raycast_data: dict):
             temperature = msg["content"]["temperature"]
 
     def openai_stream():
-        try:
-            stream = openai_client.chat.completions.create(
-                model=get_model(raycast_data),
-                messages=openai_messages,
-                max_tokens=MAX_TOKENS,
-                n=1,
-                stop=None,
-                temperature=temperature,
-                stream=True,
-            )
-            for response in stream:
-                if response.choices:
-                    chunk = response.choices[0]
-                    if chunk.finish_reason is not None:
-                        logger.debug(f"OpenAI response finish: {chunk.finish_reason}")
-                        yield f'data: {json.dumps({"text": "", "finish_reason": chunk.finish_reason})}\n\n'
-                    if chunk.delta and chunk.delta.content:
-                        logger.debug(f"OpenAI response chunk: {chunk.delta.content}")
-                        yield f'data: {json.dumps({"text": chunk.delta.content})}\n\n'
-        except openai.APIConnectionError as e:
-            # print(e.__cause__)
-            error_json = {"error": {"message": e.__cause__}}
-            yield f"data: {json.dumps(error_json)}"
-            return
+        class Func_call_finish(Exception):
+            pass
 
-        except openai.APIStatusError as e:
-            # print("Another non-200-range status code was received")
-            # print(e.status_code)
-            # print(e.response)
-            error_json = {
-                "error": {"message": f"HTTP {e.status_code}: {type(e).__name__}"}
-            }
-            yield f"data: {json.dumps(error_json)}"
-            return
+        while True:
+            query_parts = []  # 用于收集query参数的各个部分
+            query_tool_call_id = None
+            query_tool_name = None
+            query_func = None
+            query_extra = None
+            try:
+                print(get_tools(OPENAI_TOOLS))
+                stream = openai_client.chat.completions.create(
+                    model=get_model(raycast_data),
+                    messages=openai_messages,
+                    max_tokens=MAX_TOKENS,
+                    n=1,
+                    stop=None,
+                    temperature=temperature,
+                    stream=True,
+                    tools=get_tools(OPENAI_TOOLS),
+                    tool_choice="auto",
+                )
+                for response in stream:
+                    if response.choices:
+                        chunk = response.choices[0]
+                        # print(chunk)
+                        if chunk.finish_reason is not None:
+                            logger.debug(
+                                f"OpenAI response finish: {chunk.finish_reason}"
+                            )
+                            if chunk.finish_reason == "tool_calls":
+                                # 按照 id 查询，如果有对应的 notification 字段，则返回
+                                if "notification" in OPENAI_TOOLS[query_tool_name]:
+                                    yield OPENAI_TOOLS[query_tool_name]["notification"]
+                                    query_func = OPENAI_TOOLS[query_tool_name][
+                                        "handler"
+                                    ]
+                                    query_extra = OPENAI_TOOLS[query_tool_name][
+                                        "extra_messages"
+                                    ]
 
-        except Exception as e:
-            logger.error(f"Unknown error: {e}")
-            error_json = {"error": {"message": "Unknown error"}}
-            yield f"data: {json.dumps(error_json)}"
-            return
+                                # yield 'data: {"notification":"Searching in Google...","notification_type":"tool_used","text":""}\n\n'
+                                full_query = "".join(query_parts)
+                                query_words = json.loads(full_query)
+
+                                openai_messages.append(
+                                    {
+                                        "role": "assistant",
+                                        "content": None,
+                                        "tool_calls": [
+                                            {
+                                                "id": query_tool_call_id,
+                                                "type": "function",
+                                                "function": {
+                                                    "name": query_tool_name,
+                                                    "arguments": full_query,
+                                                },
+                                            }
+                                        ],
+                                    }
+                                )
+
+                                serp_result = json.dumps(
+                                    query_func(**query_words), ensure_ascii=False
+                                )  # 调用serp函数
+                                yield f"data: {serp_result}\n\n"
+                                openai_messages.append(
+                                    {
+                                        "role": "tool",
+                                        "content": serp_result,
+                                        "tool_call_id": query_tool_call_id,
+                                    }
+                                )
+                                openai_messages.extend(query_extra)
+                                raise Func_call_finish
+
+                            yield f'data: {json.dumps({"text": "", "finish_reason": chunk.finish_reason})}\n\n'
+                            return
+                        if chunk.delta and chunk.delta.tool_calls:
+                            if chunk.delta.tool_calls[0].id:
+                                query_tool_call_id = chunk.delta.tool_calls[0].id
+                                query_tool_name = chunk.delta.tool_calls[
+                                    0
+                                ].function.name
+                                logger.debug(
+                                    f"OpenAI response tool call id: {query_tool_call_id}"
+                                )
+                            for tool_call in chunk.delta.tool_calls:
+                                query_parts.append(tool_call.function.arguments)
+                        if chunk.delta and chunk.delta.content:
+                            logger.debug(
+                                f"OpenAI response chunk: {chunk.delta.content}"
+                            )
+                            yield f'data: {json.dumps({"text": chunk.delta.content})}\n\n'
+            except openai.APIConnectionError as e:
+                # print(e.__cause__)
+                error_json = {"error": {"message": e.__cause__}}
+                yield f"data: {json.dumps(error_json)}"
+                return
+
+            except openai.APIStatusError as e:
+                # print("Another non-200-range status code was received")
+                # print(e.status_code)
+                # print(e.response)
+                error_json = {
+                    "error": {"message": f"HTTP {e.status_code}: {type(e).__name__}"}
+                }
+                yield f"data: {json.dumps(error_json)}"
+                return
+
+            except Func_call_finish:
+                continue
+
+            except Exception as e:
+                logger.error(f"Unknown error: {e}")
+                error_json = {"error": {"message": "Unknown error"}}
+                yield f"data: {json.dumps(error_json)}"
+                return
 
     return StreamingResponse(openai_stream(), media_type="text/event-stream")
 
@@ -426,7 +554,7 @@ if os.environ.get("DEEPLX_BASE_URL") or os.environ.get("DEEPLX_API_TOKEN"):
             )
 
 
-# @app.api_route("/api/v1/translations", methods=["POST"])
+@app.api_route("/api/v1/translations", methods=["POST"])
 async def proxy_translations_openai(request: Request):
     tranlation_dict = {
         "en": "English",

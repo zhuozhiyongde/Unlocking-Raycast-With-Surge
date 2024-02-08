@@ -62,6 +62,12 @@ SSL 证书直接通过 1Panel 的 Nginx（Openresty）搞定就行。与 Surge �
 
 本仓库只支持服务器使用，本地使用需要能自行签发 SSL 证书。若本地使用建议参照原仓库操作。
 
+目前还有如下环境变量可以使用：
+
+* `DEEPLX_API_KEY`：DeepLX 的 API Key，用于翻译功能。
+* `DEEPLX_BASE_URL`：DeepLX 的 API URL，用于翻译功能。
+* `APYHUB_API_KEY`：[ApyHub](https://apyhub.com/utility/serp-rank) 的 API Key，用于联网搜索的 Function Call。
+
 #### 基于 Python + PM2 的方法
 
 你亦可以简单的使用 Python 和 PM2 来启动服务：
