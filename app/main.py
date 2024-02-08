@@ -270,12 +270,12 @@ async def chat_completions_openai(raycast_data: dict):
                                 # 按照 id 查询，如果有对应的 notification 字段，则返回
                                 if "notification" in OPENAI_TOOLS[query_tool_name]:
                                     yield OPENAI_TOOLS[query_tool_name]["notification"]
-                                    query_func = OPENAI_TOOLS[query_tool_name][
-                                        "handler"
-                                    ]
-                                    query_extra = OPENAI_TOOLS[query_tool_name][
-                                        "extra_messages"
-                                    ]
+                                query_func = OPENAI_TOOLS[query_tool_name][
+                                    "handler"
+                                ]
+                                query_extra = OPENAI_TOOLS[query_tool_name][
+                                    "extra_messages"
+                                ]
 
                                 # yield 'data: {"notification":"Searching in Google...","notification_type":"tool_used","text":""}\n\n'
                                 full_query = "".join(query_parts)
@@ -298,14 +298,14 @@ async def chat_completions_openai(raycast_data: dict):
                                     }
                                 )
 
-                                serp_result = json.dumps(
+                                tool_result = json.dumps(
                                     query_func(**query_words), ensure_ascii=False
                                 )  # 调用serp函数
-                                yield f"data: {serp_result}\n\n"
+                                yield f"data: {tool_result}\n\n"
                                 openai_messages.append(
                                     {
                                         "role": "tool",
-                                        "content": serp_result,
+                                        "content": tool_result,
                                         "tool_call_id": query_tool_call_id,
                                     }
                                 )
@@ -554,7 +554,7 @@ if os.environ.get("DEEPLX_BASE_URL") or os.environ.get("DEEPLX_API_TOKEN"):
             )
 
 
-@app.api_route("/api/v1/translations", methods=["POST"])
+# @app.api_route("/api/v1/translations", methods=["POST"])
 async def proxy_translations_openai(request: Request):
     tranlation_dict = {
         "en": "English",
