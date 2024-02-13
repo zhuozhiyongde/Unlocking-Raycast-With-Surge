@@ -117,7 +117,7 @@ function launch() {
                         return activator[module][key].func();
                     }
                 } else if (!url.includes(`${activator[module].base}/${key}`)) {
-                    return;
+                    continue;
                 }
                 if (typeof activator[module][key] === 'function') {
                     return activator[module][key]();
