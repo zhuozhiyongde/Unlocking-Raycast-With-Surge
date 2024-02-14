@@ -179,7 +179,7 @@ def get_model(raycast_data: dict):
     return FORCE_MODEL or is_command_model or raycast_data["model"]
 
 
-def get_tools(tools: list):
+def get_tools(tools: dict):
     # 对 tools 的每个对象，检查 required_environ 是否存在或者不存在此字段，如果满足该条件，则移除其 required_environ、handler、extra_messages 字段
     # 返回处理后的 tools
     format_tools = []
