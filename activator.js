@@ -1,5 +1,7 @@
 'use strict';
 
+var raycastBackendURL = typeof $argument != "undefined" ? $argument : 'https://custome-backend.self.com'
+
 function transformToString(obj) {
     if (typeof obj === 'object') {
         return JSON.stringify(obj);
@@ -54,7 +56,7 @@ for (let method of methods) {
  */
 function raycastActivate() {
     $done({
-        url: $request.url.replace('https://backend.raycast.com', 'https://custome-backend.self.com'),
+        url: $request.url.replace('https://backend.raycast.com', raycastBackendURL),
         headers: $request.headers,
         body: $request.body,
     });

@@ -1,0 +1,12 @@
+#!name=Unlocking Raycast
+#!desc=https://github.com/zhuozhiyongde/Unlocking-Raycast-With-Surge
+#!system=mac
+#!arguments=raycastBackendURL:https://custome-backend.self.com
+#!arguments-desc=\n请自行将 raycastBackendURL 参数 https://custome-backend.self.com 修改为你的服务器地址。
+
+
+[MITM]
+hostname = %APPEND% *.raycast.com
+
+[Script]
+raycast-activate-backend.raycast.com = type=http-request,pattern=^https://backend.raycast.com,max-size=0,debug=1,script-path=https://raw.githubusercontent.com/zhuozhiyongde/Unlocking-Raycast-With-Surge/main/activator.js,arguments={{{raycastBackendURL}}}
